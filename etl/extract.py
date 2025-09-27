@@ -5,10 +5,14 @@ from datetime import datetime
 from utils.helpers import handle_api_errors
 
 # Load config
-with open("config.json") as f:
-    config = json.load(f)
+# with open("config.json") as f:
+#     config = json.load(f)
 
-COINGECKO_API = config['coingecko_api_url']
+# COINGECKO_API = config['coingecko_api_url']
+
+# FIX for json not found, hard coding API
+
+COINGECKO_API = "https://api.coingecko.com/api/v3"
 
 def fetch_top_coins(vs_currency="usd", per_page=50, page=1):
     """
