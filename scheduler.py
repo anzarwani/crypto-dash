@@ -1,40 +1,40 @@
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime
-import logging
-
+from prefect import flow, task
 from etl.extract import fetch_top_coins
 from etl.transform import transform
 from etl.load import load
+import logging
 
 # --- Configure logging ---
 logging.basicConfig(level=logging.INFO)
 
-# --- ETL Job ---
-def etl_job():
-    logging.info(f"ETL job started at {datetime.utcnow()}")
-    try:
-        data = fetch_top_coins()
-        transformed_data = transform(data)
-        load(transformed_data)
-        logging.info("ETL job completed successfully.")
-    except Exception as e:
-        logging.error(f"ETL job failed: {e}")
+# --- Prefect Tasks ---
+@task(name="Extract Top Coins", retries=3, retry_delay_seconds=30)
+def extract_task():
+    logging.info("Starting extraction")
+    df = fetch_top_coins()
+    if df.empty:
+        logging.warning("No data fetched from API.")
+    return df
 
-# --- Start APScheduler ---
-scheduler = BackgroundScheduler()
-scheduler.add_job(etl_job, 'interval', minutes=60, id="etl_job")
-scheduler.start()
-logging.info("Scheduler started. ETL will run every 60 minutes.")
+@task(name="Transform Data")
+def transform_task(df):
+    logging.info("Starting transformation")
+    df_transformed, df_anomalies = transform(df)
+    logging.info(f"Transformed {len(df_transformed)} rows, found {len(df_anomalies)} anomalies")
+    return df_transformed, df_anomalies
 
-# Minimal HTTP server to fake a port on render
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"ETL Worker Running!")
+@task(name="Load Data")
+def load_task(df_transformed, df_anomalies):
+    logging.info("Starting load into Supabase")
+    load(df_transformed, df_anomalies)
+    logging.info("Load complete")
+
+# --- Prefect Flow ---
+@flow(name="Crypto ETL Flow")
+def crypto_etl_flow():
+    df = extract_task()
+    df_transformed, df_anomalies = transform_task(df)
+    load_task(df_transformed, df_anomalies)
 
 if __name__ == "__main__":
-    server = HTTPServer(("0.0.0.0", 10000), Handler)  # port 10000
-    print("Listening on port 10000.")
-    server.serve_forever()
+    crypto_etl_flow()
